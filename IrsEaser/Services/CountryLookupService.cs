@@ -1,18 +1,20 @@
 using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using IrsEaser.Models;
 
 namespace IrsEaser.Services;
 
 /// <summary>
 /// Resolves ISO 3166-1 numeric country codes for securities.
-/// Uses a local JSON cache, optionally enriched via the OpenFIGI API,
-/// with interactive fallback for any securities that cannot be identified automatically.
+/// Resolution order: cache (keyed by ISIN) → Source Country text from the securities CSV
+/// → OpenFIGI API (ISIN-based when available, otherwise name search) → interactive prompt.
 /// </summary>
 public class CountryLookupService
 {
     private readonly string _cacheFilePath;
-    private readonly Dictionary<string, string> _cache; // security name → numeric country code
+    private readonly IReadOnlyDictionary<string, SecurityInfo> _securities;
+    private readonly Dictionary<string, string> _cache; // ISIN (or name fallback) → numeric country code
 
     // Exchange code → ISO 3166-1 numeric country code
     private static readonly Dictionary<string, string> ExchangeToCountry = new(StringComparer.OrdinalIgnoreCase)
@@ -65,73 +67,178 @@ public class CountryLookupService
         { "CP", "203" },
     };
 
-    public CountryLookupService(string cacheFilePath)
+    // Human-readable country name → ISO 3166-1 numeric code (from Portfolio Performance)
+    private static readonly Dictionary<string, string> CountryNameToCode = new(StringComparer.OrdinalIgnoreCase)
+    {
+        { "Germany",        "276" },
+        { "United States",  "840" },
+        { "United Kingdom", "826" },
+        { "France",         "250" },
+        { "Netherlands",    "528" },
+        { "Belgium",        "56"  },
+        { "Portugal",       "620" },
+        { "Spain",          "724" },
+        { "Italy",          "380" },
+        { "Sweden",         "752" },
+        { "Norway",         "578" },
+        { "Denmark",        "208" },
+        { "Finland",        "246" },
+        { "Austria",        "40"  },
+        { "Switzerland",    "756" },
+        { "Japan",          "392" },
+        { "Hong Kong",      "344" },
+        { "China",          "156" },
+        { "Australia",      "36"  },
+        { "Canada",         "124" },
+        { "Ireland",        "372" },
+        { "Luxembourg",     "442" },
+        { "Poland",         "616" },
+        { "Czech Republic", "203" },
+        // Alternate names used by Portfolio Performance
+        { "Great Britain",  "826" },
+    };
+
+    public CountryLookupService(string cacheFilePath, IReadOnlyDictionary<string, SecurityInfo> securities)
     {
         _cacheFilePath = cacheFilePath;
-        _cache = LoadCache(cacheFilePath);
+        _securities    = securities;
+        _cache         = LoadCache(cacheFilePath);
     }
 
-    public string? GetCountry(string securityName) =>
-        _cache.TryGetValue(securityName, out var code) ? code : null;
+    /// <summary>Returns the cached country code for a security, looked up by ISIN when available.</summary>
+    public string? GetCountry(string securityName)
+    {
+        var key = GetCacheKey(securityName);
+        return _cache.TryGetValue(key, out var code) ? code : null;
+    }
 
     /// <summary>
-    /// Ensures every security in <paramref name="securities"/> has a country code.
-    /// Tries: cache → OpenFIGI API → interactive prompt.
+    /// Ensures every security in <paramref name="securityNames"/> has a country code.
+    /// Tries: cache → Source Country CSV field → OpenFIGI API → interactive prompt.
     /// </summary>
-    public async Task ResolveCountriesAsync(IEnumerable<string> securities, bool skipApiLookup)
+    public async Task ResolveCountriesAsync(IEnumerable<string> securityNames, bool skipApiLookup)
     {
-        var unknown = securities.Where(s => !_cache.ContainsKey(s)).ToList();
+        var unknown = securityNames.Where(s => GetCountry(s) is null).ToList();
         if (unknown.Count == 0) return;
 
         Console.WriteLine($"\n{unknown.Count} securities need a country assignment.");
 
-        if (!skipApiLookup)
+        // Step 1: resolve from Source Country field in the securities CSV
+        ResolveFromSecuritiesCsv(unknown);
+        unknown = unknown.Where(s => GetCountry(s) is null).ToList();
+
+        // Step 2: OpenFIGI API
+        if (!skipApiLookup && unknown.Count > 0)
         {
             await LookupViaOpenFigiAsync(unknown);
-            unknown = unknown.Where(s => !_cache.ContainsKey(s)).ToList();
+            unknown = unknown.Where(s => GetCountry(s) is null).ToList();
         }
 
+        // Step 3: interactive fallback
         if (unknown.Count > 0)
             PromptUserForCountries(unknown);
 
         SaveCache();
     }
 
-    private async Task LookupViaOpenFigiAsync(List<string> securities)
+    // ── Private helpers ────────────────────────────────────────────────────
+
+    /// <summary>Returns the ISIN for the security when available, otherwise its name.</summary>
+    private string GetCacheKey(string securityName)
+    {
+        if (_securities.TryGetValue(securityName, out var info) && !string.IsNullOrEmpty(info.Isin))
+            return info.Isin;
+        return securityName;
+    }
+
+    private void ResolveFromSecuritiesCsv(List<string> securityNames)
+    {
+        foreach (var name in securityNames)
+        {
+            if (!_securities.TryGetValue(name, out var info))
+                continue;
+
+            if (string.IsNullOrEmpty(info.SourceCountry))
+                continue;
+
+            if (CountryNameToCode.TryGetValue(info.SourceCountry, out var code))
+            {
+                var key = GetCacheKey(name);
+                Console.WriteLine($"  [+] '{name}' → Source Country '{info.SourceCountry}' → {code}");
+                _cache[key] = code;
+            }
+            else
+            {
+                Console.WriteLine($"  [?] Unknown country name '{info.SourceCountry}' for '{name}'.");
+            }
+        }
+    }
+
+    private async Task LookupViaOpenFigiAsync(List<string> securityNames)
     {
         Console.WriteLine("Looking up securities via OpenFIGI...");
         using var http = new HttpClient { BaseAddress = new Uri("https://api.openfigi.com") };
 
-        foreach (var security in securities)
+        foreach (var name in securityNames)
         {
             try
             {
-                var payload = new { query = security };
-                using var response = await http.PostAsJsonAsync("/v3/search", payload);
+                _securities.TryGetValue(name, out var info);
+                var isin = info?.Isin;
 
-                if (!response.IsSuccessStatusCode)
+                List<OpenFigiSecurityDto>? candidates;
+
+                if (!string.IsNullOrEmpty(isin))
                 {
-                    Console.WriteLine($"  [!] OpenFIGI returned {(int)response.StatusCode} for '{security}'.");
-                    continue;
+                    // Precise: ISIN-based mapping
+                    var payload = new[] { new { idType = "ID_ISIN", idValue = isin } };
+                    using var response = await http.PostAsJsonAsync("/v3/mapping", payload);
+
+                    if (!response.IsSuccessStatusCode)
+                    {
+                        Console.WriteLine($"  [!] OpenFIGI returned {(int)response.StatusCode} for '{name}' (ISIN {isin}).");
+                        await Task.Delay(1100);
+                        continue;
+                    }
+
+                    var json = await response.Content.ReadAsStringAsync();
+                    var wrappers = JsonSerializer.Deserialize<List<OpenFigiMappingResult>>(json,
+                        new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                    candidates = wrappers?.FirstOrDefault()?.Data;
+                }
+                else
+                {
+                    // Fallback: name search
+                    var payload = new { query = name };
+                    using var response = await http.PostAsJsonAsync("/v3/search", payload);
+
+                    if (!response.IsSuccessStatusCode)
+                    {
+                        Console.WriteLine($"  [!] OpenFIGI returned {(int)response.StatusCode} for '{name}'.");
+                        await Task.Delay(1100);
+                        continue;
+                    }
+
+                    var json = await response.Content.ReadAsStringAsync();
+                    var result = JsonSerializer.Deserialize<OpenFigiSearchResponse>(json,
+                        new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                    candidates = result?.Data;
                 }
 
-                var json = await response.Content.ReadAsStringAsync();
-                var result = JsonSerializer.Deserialize<OpenFigiSearchResponse>(json,
-                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
-
-                var match = result?.Data?.FirstOrDefault(d =>
+                var match = candidates?.FirstOrDefault(d =>
                     string.Equals(d.MarketSector, "Equity", StringComparison.OrdinalIgnoreCase) &&
                     !string.IsNullOrEmpty(d.ExchCode));
 
                 if (match?.ExchCode is not null &&
                     ExchangeToCountry.TryGetValue(match.ExchCode, out var countryCode))
                 {
-                    Console.WriteLine($"  [+] '{security}' → exchange {match.ExchCode} → country {countryCode}");
-                    _cache[security] = countryCode;
+                    var key = GetCacheKey(name);
+                    Console.WriteLine($"  [+] '{name}' → exchange {match.ExchCode} → country {countryCode}");
+                    _cache[key] = countryCode;
                 }
                 else
                 {
-                    Console.WriteLine($"  [?] Could not auto-resolve country for '{security}'.");
+                    Console.WriteLine($"  [?] Could not auto-resolve country for '{name}'.");
                 }
 
                 // Respect OpenFIGI rate limits (1 req/s without API key)
@@ -139,23 +246,23 @@ public class CountryLookupService
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"  [!] Error looking up '{security}': {ex.Message}");
+                Console.WriteLine($"  [!] Error looking up '{name}': {ex.Message}");
             }
         }
     }
 
-    private void PromptUserForCountries(List<string> securities)
+    private void PromptUserForCountries(List<string> securityNames)
     {
         Console.WriteLine("\nThe following securities could not be identified automatically.");
         Console.WriteLine("Enter the ISO 3166-1 numeric country code for each (e.g. 276 = Germany, 840 = USA).");
         Console.WriteLine("Press Enter to skip a security (it will be excluded from the XML output).\n");
 
-        foreach (var security in securities)
+        foreach (var name in securityNames)
         {
-            Console.Write($"  Country code for '{security}': ");
+            Console.Write($"  Country code for '{name}': ");
             var input = Console.ReadLine()?.Trim() ?? "";
             if (!string.IsNullOrEmpty(input))
-                _cache[security] = input;
+                _cache[GetCacheKey(name)] = input;
         }
     }
 
@@ -192,6 +299,12 @@ public class CountryLookupService
     // ── OpenFIGI response DTOs ──────────────────────────────────────────────
 
     private sealed class OpenFigiSearchResponse
+    {
+        [JsonPropertyName("data")]
+        public List<OpenFigiSecurityDto>? Data { get; set; }
+    }
+
+    private sealed class OpenFigiMappingResult
     {
         [JsonPropertyName("data")]
         public List<OpenFigiSecurityDto>? Data { get; set; }

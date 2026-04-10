@@ -27,3 +27,5 @@ security-countries.json
 
 # But track the agents spec
 !agents.md
+*.csv
+out.txt

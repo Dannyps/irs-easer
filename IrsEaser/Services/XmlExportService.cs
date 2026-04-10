@@ -1,3 +1,5 @@
+using System.Text;
+using System.Xml;
 using System.Xml.Linq;
 using IrsEaser.Models;
 
@@ -11,13 +13,21 @@ public class XmlExportService
     public void Export(IReadOnlyList<TradeLine> lines, string outputPath)
     {
         var root = new XElement("AnexoJq092AT01",
-            lines.Select((line, idx) => BuildLine(line, idx + 1)));
+            lines.Select((line, idx) => BuildLine(line, idx + 1)),
+            new XElement("AnexoJq092AT01SomaC01", FormatDecimal(lines.Sum(l => l.SellValue))),
+            new XElement("AnexoJq092AT01SomaC02", FormatDecimal(lines.Sum(l => l.BuyValue))),
+            new XElement("AnexoJq092AT01SomaC03", FormatDecimal(lines.Sum(l => l.Fees))),
+            new XElement("AnexoJq092AT01SomaC04", FormatDecimal(lines.Sum(l => l.TaxesPaid))));
 
-        var doc = new XDocument(
-            new XDeclaration("1.0", "UTF-8", null),
-            root);
+        var settings = new XmlWriterSettings
+        {
+            OmitXmlDeclaration = true,
+            Indent = true,
+            Encoding = new UTF8Encoding(false),
+        };
 
-        doc.Save(outputPath);
+        using var writer = XmlWriter.Create(outputPath, settings);
+        root.WriteTo(writer);
     }
 
     private static XElement BuildLine(TradeLine line, int numero)
