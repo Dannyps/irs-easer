@@ -1,10 +1,14 @@
 # IRS Easer
 
-A command-line tool that generates the IRS Modelo 3 — Anexo J, Quadro 9.2-A XML import file from a [Portfolio Performance](https://www.portfolio-performance.info/) transaction export.
+A command-line tool for Portuguese tax residents that generates ready-to-import XML files for **IRS Modelo 3 — Anexo J** from [Portfolio Performance](https://www.portfolio-performance.info/) exports.
+
+Covers two sections of Anexo J:
+- **Quadro 9.2-A** — capital gains from selling foreign securities
+- **Quadro 8A** — dividend income from foreign securities
 
 ## Background
 
-Portuguese tax residents who sell foreign securities must declare the gains in **Anexo J, Quadro 9.2-A** of IRS Modelo 3. Each sale must be broken down into one line per purchase lot (FIFO), which is tedious to do by hand. This tool automates that process.
+If you hold foreign securities, Portuguese tax law requires you to declare capital gains and dividend income in Anexo J of IRS Modelo 3. Filling this out by hand is painful: each sale must be split into one line per purchase lot (FIFO), and dividends must be grouped and totalled by source country. IRS Easer automates both.
 
 ## Requirements
 
@@ -12,76 +16,111 @@ Portuguese tax residents who sell foreign securities must declare the gains in *
 
 ## Installation
 
-Clone the repository and build:
-
 ```
 git clone <repo-url>
 cd irs-easer
-dotnet build IrsEaser/IrsEaser.csproj
 ```
 
-Or run directly without building first (see Usage below).
+No build step needed — `dotnet run` compiles and runs in one go.
 
-## Usage
+## Quick Start
 
-```
-dotnet run --project IrsEaser -- --csv <transactions.csv> [options]
-```
+1. Drop your CSV exports into the `input/` folder (see [Input Files](#input-files) below).
+2. Run the tool:
+   ```
+   dotnet run --project IrsEaser
+   ```
+3. An interactive menu appears. Choose what to generate, select your files, confirm the tax year. Done.
 
-### Options
+The tool defaults to the **previous calendar year**, which is almost always the right choice when filing.
 
-| Flag | Shorthand | Description |
-|------|-----------|-------------|
-| `--csv <path>` | `-c` | Path to Portfolio Performance CSV export **(required)** |
-| `--year <year>` | `-y` | Tax year to report (default: previous calendar year) |
-| `--output <path>` | `-o` | Output XML file path (default: `irs-anexo-j-<year>.xml`) |
-| `--countries <path>` | | Path to the country code cache JSON file (default: same directory as the CSV) |
-| `--no-lookup` | | Skip the OpenFIGI API lookup and go straight to the manual prompt |
-| `--help` | `-h` | Show usage information |
+## Input Files
 
-### Example
+All files go in the `input/` folder. Template files for each format are included in that folder.
 
-```
-dotnet run --project IrsEaser -- --csv ~/exports/transactions.csv --year 2025
-```
+### 1. Transactions CSV
 
-## Input: Portfolio Performance CSV Export
-
-Export your transactions from Portfolio Performance via **File → Export → Transactions (CSV)**. The expected columns are:
+Export from Portfolio Performance via **File → Export → Transactions (CSV)**. The tool reads these columns:
 
 | Column | Description |
 |--------|-------------|
 | Date | Transaction date |
-| Type | `Buy` or `Sell` (all other types are ignored) |
-| Security | Security name |
+| Type | `Buy`, `Sell`, or `Dividend` (all other types are ignored) |
+| Security | Security name (must match the securities file exactly) |
 | Shares | Number of shares |
 | Quote | Price per share |
 | Amount | Gross amount |
 | Fees | Brokerage fees |
-| Taxes | Taxes paid at source |
+| Taxes | Taxes withheld at source |
 | Net Transaction Value | Net amount after fees and taxes |
 | Account | Portfolio account |
 | Offset Account | Cash account |
 | Note | Free-text note |
 | Source | Data source |
 
-> Portfolio Performance can export with either `,` or `;` as the delimiter and with either `.` or `,` as the decimal separator. Both formats are handled automatically.
+> Both `,` and `;` delimiters and both `.` and `,` decimal separators are detected automatically.
+
+### 2. Securities CSV
+
+Export from Portfolio Performance via **File → Export → Securities (CSV)**. The tool reads:
+
+| Column | Description |
+|--------|-------------|
+| Name | Security name (must match the transactions file exactly) |
+| Symbol | Ticker symbol |
+| ISIN | ISIN code (used for country lookup) |
+| Source Country (Level 3) | Pre-filled country code, if set in Portfolio Performance |
+
+> This file must use `;` as the delimiter, which is the Portfolio Performance default for securities exports.
+
+### 3. Supplementary Dividends CSV *(optional)*
+
+For dividend income received outside of Portfolio Performance — for example, interest from a savings account or a broker cash account. Each row is one income entry:
+
+| Column | Description |
+|--------|-------------|
+| Date | Date of payment (used only for tax year filtering) |
+| IncomeCode | AT income code, e.g. `E21` for dividends |
+| CountryCode | ISO 3166-1 numeric code of the source country |
+| GrossAmount | Gross amount received |
+| TaxPaid | Tax withheld at source |
+
+```csv
+Date,IncomeCode,CountryCode,GrossAmount,TaxPaid
+2025-03-15,E21,840,50.00,7.50
+2025-06-20,E21,756,30.00,4.50
+```
 
 ## How It Works
 
-1. **CSV import** — Transactions are loaded and sorted chronologically. Only `Buy` and `Sell` rows are processed.
-2. **Country resolution** — For each distinct security, the tool determines the ISO 3166-1 numeric country code of the primary exchange where it is listed:
-   - First checks the local cache (`security-countries.json`).
-   - If not cached, queries the [OpenFIGI API](https://www.openfigi.com/) (no API key required; rate-limited to 1 request/second).
-   - Any security still unresolved is prompted interactively.
-   - All resolved codes are saved to the cache for future runs.
-3. **FIFO lot matching** — Buy lots are consumed in order (oldest first). Partial sells are supported. Sells outside the selected tax year still consume lots so that the FIFO state remains correct.
-4. **Line generation** — For each sell in the tax year, one output line is produced per matched buy lot. The sell value, fees, and taxes are allocated proportionally: `lot shares ÷ total shares sold`.
-5. **XML export** — The lines are written to an XML file ready to import into the IRS Modelo 3 application.
+### Capital Gains (Quadro 9.2-A)
 
-## Output: XML Format
+1. Loads and sorts all transactions chronologically. Only `Buy` and `Sell` rows are processed.
+2. Resolves the source country for each security (see [Country Resolution](#country-resolution)).
+3. Matches buy lots to sells using **FIFO** (oldest lots first). Partial sells are supported. Sales outside the selected tax year are still processed to keep the lot state correct.
+4. For each sell in the tax year, generates one output line per matched buy lot. The sell value, fees, and taxes from both sides are split proportionally by `lot shares ÷ total shares sold`.
+5. Writes `irs-quadro9-2a-<year>.xml`.
 
-The generated XML follows the schema expected by the AT (Autoridade Tributária) Modelo 3 import tool:
+### Dividends (Quadro 8A)
+
+1. Loads all transactions and filters to `Dividend` rows for the selected tax year.
+2. Resolves the source country for each security that paid a dividend (see [Country Resolution](#country-resolution)).
+3. Merges any supplementary dividend entries.
+4. Groups all entries by **(country, income code)** and sums gross amounts and taxes withheld.
+5. Writes `irs-quadro8a-<year>.xml`.
+
+### Country Resolution
+
+For each security, the tool determines the ISO 3166-1 numeric country code of its primary exchange:
+
+1. Checks `input/security-countries.json` (the local cache).
+2. Queries the [OpenFIGI API](https://www.openfigi.com/) by ISIN if not cached — no API key required, rate-limited to 1 request/second.
+3. Prompts you to enter the code manually for anything still unresolved.
+4. Saves all resolved codes back to the cache for future runs.
+
+## Output
+
+### Capital Gains — `irs-quadro9-2a-<year>.xml`
 
 ```xml
 <AnexoJq092AT01>
@@ -98,19 +137,36 @@ The generated XML follows the schema expected by the AT (Autoridade Tributária)
         <DiaAquisicao>3</DiaAquisicao>
         <ValorAquisicao>400.00</ValorAquisicao>
         <DespesasEncargos>2.00</DespesasEncargos>
-        <!-- ImpostoPagoNoEstrangeiro is only included when taxes > 0 -->
+        <!-- ImpostoPagoNoEstrangeiro only appears when taxes > 0 -->
     </AnexoJq092AT01-Linha>
 </AnexoJq092AT01>
 ```
 
-- `NLinha` starts at **951** and increments for each line.
-- `CodPais` is the ISO 3166-1 numeric country code.
-- `DespesasEncargos` combines fees from both the buy and the sell, proportionally allocated.
-- `ImpostoPagoNoEstrangeiro` is only emitted when foreign taxes were paid.
+- `NLinha` starts at **951**.
+- `DespesasEncargos` is the proportional share of fees from both the buy and the sell.
+- `ImpostoPagoNoEstrangeiro` only appears when foreign taxes were paid.
+
+### Dividends — `irs-quadro8a-<year>.xml`
+
+```xml
+<AnexoJq08AT01>
+    <AnexoJq08AT01-Linha numero="1">
+        <NLinha>801</NLinha>
+        <CodRendimento>E21</CodRendimento>
+        <CodPais>840</CodPais>
+        <RendimentoBruto>80.00</RendimentoBruto>
+        <ImpostoPagoEstrangeiroPaisFonte>12.00</ImpostoPagoEstrangeiroPaisFonte>
+        <!-- ImpostoPagoEstrangeiroPaisFonte only appears when taxes > 0 -->
+    </AnexoJq08AT01-Linha>
+</AnexoJq08AT01>
+```
+
+- `NLinha` starts at **801**.
+- One line per **(country, income code)** pair — amounts from all securities in the same country are summed into a single line.
 
 ## Country Code Cache
 
-Resolved country codes are stored in `security-countries.json` next to the CSV file (or at the path given by `--countries`). The file is a simple JSON object:
+`input/security-countries.json` stores previously resolved country codes so the OpenFIGI API is only called once per security:
 
 ```json
 {
@@ -119,7 +175,7 @@ Resolved country codes are stored in `security-countries.json` next to the CSV f
 }
 ```
 
-You can edit this file manually to correct or pre-populate entries.
+Edit this file freely to correct or pre-populate entries.
 
 ## Common ISO 3166-1 Numeric Codes
 
@@ -136,4 +192,4 @@ You can edit this file manually to correct or pre-populate entries.
 | Portugal | 620 |
 | Japan | 392 |
 
-A full list is available at [iso.org](https://www.iso.org/iso-3166-country-codes.html) or [Wikipedia](https://en.wikipedia.org/wiki/ISO_3166-1_numeric).
+Full list: [iso.org](https://www.iso.org/iso-3166-country-codes.html) or [Wikipedia](https://en.wikipedia.org/wiki/ISO_3166-1_numeric).
