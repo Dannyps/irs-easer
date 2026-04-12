@@ -42,21 +42,21 @@ All files go in the `input/` folder. Template files for each format are included
 
 Export from Portfolio Performance via **File → Export → Transactions (CSV)**. The tool reads these columns:
 
-| Column | Description |
-|--------|-------------|
-| Date | Transaction date |
-| Type | `Buy`, `Sell`, or `Dividend` (all other types are ignored) |
-| Security | Security name (must match the securities file exactly) |
-| Shares | Number of shares |
-| Quote | Price per share |
-| Amount | Gross amount |
-| Fees | Brokerage fees |
-| Taxes | Taxes withheld at source |
-| Net Transaction Value | Net amount after fees and taxes |
-| Account | Portfolio account |
-| Offset Account | Cash account |
-| Note | Free-text note |
-| Source | Data source |
+| Column                | Description                                                |
+| --------------------- | ---------------------------------------------------------- |
+| Date                  | Transaction date                                           |
+| Type                  | `Buy`, `Sell`, or `Dividend` (all other types are ignored) |
+| Security              | Security name (must match the securities file exactly)     |
+| Shares                | Number of shares                                           |
+| Quote                 | Price per share                                            |
+| Amount                | Gross amount                                               |
+| Fees                  | Brokerage fees                                             |
+| Taxes                 | Taxes withheld at source                                   |
+| Net Transaction Value | Net amount after fees and taxes                            |
+| Account               | Portfolio account                                          |
+| Offset Account        | Cash account                                               |
+| Note                  | Free-text note                                             |
+| Source                | Data source                                                |
 
 > Both `,` and `;` delimiters and both `.` and `,` decimal separators are detected automatically.
 
@@ -64,11 +64,11 @@ Export from Portfolio Performance via **File → Export → Transactions (CSV)**
 
 Export from Portfolio Performance via **File → Export → Securities (CSV)**. The tool reads:
 
-| Column | Description |
-|--------|-------------|
-| Name | Security name (must match the transactions file exactly) |
-| Symbol | Ticker symbol |
-| ISIN | ISIN code (used for country lookup) |
+| Column                   | Description                                              |
+| ------------------------ | -------------------------------------------------------- |
+| Name                     | Security name (must match the transactions file exactly) |
+| Symbol                   | Ticker symbol                                            |
+| ISIN                     | ISIN code (used for country lookup)                      |
 | Source Country (Level 3) | Pre-filled country code, if set in Portfolio Performance |
 
 > This file must use `;` as the delimiter, which is the Portfolio Performance default for securities exports.
@@ -77,13 +77,13 @@ Export from Portfolio Performance via **File → Export → Securities (CSV)**. 
 
 For dividend income received outside of Portfolio Performance — for example, interest from a savings account or a broker cash account. Each row is one income entry:
 
-| Column | Description |
-|--------|-------------|
-| Date | Date of payment (used only for tax year filtering) |
-| IncomeCode | AT income code, e.g. `E21` for dividends |
-| CountryCode | ISO 3166-1 numeric code of the source country |
-| GrossAmount | Gross amount received |
-| TaxPaid | Tax withheld at source |
+| Column      | Description                                        |
+| ----------- | -------------------------------------------------- |
+| Date        | Date of payment (used only for tax year filtering) |
+| IncomeCode  | AT income code, e.g. `E21` for dividends           |
+| CountryCode | ISO 3166-1 numeric code of the source country      |
+| GrossAmount | Gross amount received                              |
+| TaxPaid     | Tax withheld at source                             |
 
 ```csv
 Date,IncomeCode,CountryCode,GrossAmount,TaxPaid
@@ -179,17 +179,17 @@ Edit this file freely to correct or pre-populate entries.
 
 ## Common ISO 3166-1 Numeric Codes
 
-| Country | Code |
-|---------|------|
-| Germany | 276 |
-| USA | 840 |
-| UK | 826 |
-| France | 250 |
-| Netherlands | 528 |
-| Switzerland | 756 |
-| Sweden | 752 |
-| Ireland | 372 |
-| Portugal | 620 |
-| Japan | 392 |
+| Country     | Code |
+| ----------- | ---- |
+| Germany     | 276  |
+| USA         | 840  |
+| UK          | 826  |
+| France      | 250  |
+| Netherlands | 528  |
+| Switzerland | 756  |
+| Sweden      | 752  |
+| Ireland     | 372  |
+| Portugal    | 620  |
+| Japan       | 392  |
 
 Full list: [iso.org](https://www.iso.org/iso-3166-country-codes.html) or [Wikipedia](https://en.wikipedia.org/wiki/ISO_3166-1_numeric).
