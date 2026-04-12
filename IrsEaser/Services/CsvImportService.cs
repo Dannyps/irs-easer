@@ -91,6 +91,7 @@ public class CsvImportService
     {
         "buy"  or "kauf"                                    => TransactionType.Buy,
         "sell" or "verkauf"                                 => TransactionType.Sell,
+        "dividend" or "dividende"                           => TransactionType.Dividend,
         "delivery (inbound)"  or "einlieferung"             => TransactionType.DeliveryInbound,
         "delivery (outbound)" or "auslieferung"             => TransactionType.DeliveryOutbound,
         "transfer (inbound)"  or "umbuchung (eingang)"      => TransactionType.TransferIn,

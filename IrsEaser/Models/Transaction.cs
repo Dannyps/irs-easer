@@ -4,6 +4,7 @@ public enum TransactionType
 {
     Buy,
     Sell,
+    Dividend,
     DeliveryInbound,
     DeliveryOutbound,
     TransferIn,

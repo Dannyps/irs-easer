@@ -1,33 +1,28 @@
 using System.Text;
-using System.Xml;
 using System.Xml.Linq;
 using IrsEaser.Models;
 
 namespace IrsEaser.Services;
 
 /// <summary>
-/// Generates the IRS Modelo 3 import XML for Anexo J, Quadro 9.2-A.
+/// Generates the IRS Modelo 3 import XML fragment for Anexo J, Quadro 9.2-A.
+/// Output has no XML declaration and the SomaC elements are siblings of
+/// AnexoJq092AT01, matching the schema expected inside &lt;Quadro09&gt;.
 /// </summary>
 public class XmlExportService
 {
     public void Export(IReadOnlyList<TradeLine> lines, string outputPath)
     {
-        var root = new XElement("AnexoJq092AT01",
-            lines.Select((line, idx) => BuildLine(line, idx + 1)),
-            new XElement("AnexoJq092AT01SomaC01", FormatDecimal(lines.Sum(l => l.SellValue))),
-            new XElement("AnexoJq092AT01SomaC02", FormatDecimal(lines.Sum(l => l.BuyValue))),
-            new XElement("AnexoJq092AT01SomaC03", FormatDecimal(lines.Sum(l => l.Fees))),
-            new XElement("AnexoJq092AT01SomaC04", FormatDecimal(lines.Sum(l => l.TaxesPaid))));
+        using var writer = new StreamWriter(outputPath, append: false, new UTF8Encoding(false));
 
-        var settings = new XmlWriterSettings
-        {
-            OmitXmlDeclaration = true,
-            Indent = true,
-            Encoding = new UTF8Encoding(false),
-        };
+        var container = new XElement("AnexoJq092AT01",
+            lines.Select((line, idx) => BuildLine(line, idx + 1)));
 
-        using var writer = XmlWriter.Create(outputPath, settings);
-        root.WriteTo(writer);
+        writer.WriteLine(container.ToString());
+        writer.WriteLine(new XElement("AnexoJq092AT01SomaC01", FormatDecimal(lines.Sum(l => l.SellValue))));
+        writer.WriteLine(new XElement("AnexoJq092AT01SomaC02", FormatDecimal(lines.Sum(l => l.BuyValue))));
+        writer.WriteLine(new XElement("AnexoJq092AT01SomaC03", FormatDecimal(lines.Sum(l => l.Fees))));
+        writer.WriteLine(new XElement("AnexoJq092AT01SomaC04", FormatDecimal(lines.Sum(l => l.TaxesPaid))));
     }
 
     private static XElement BuildLine(TradeLine line, int numero)
