@@ -24,8 +24,8 @@ Thumbs.db
 # Application runtime data (may contain personal tax info — do not commit)
 *.xml
 security-countries.json
-
-# But track the agents spec
-!agents.md
 *.csv
 out.txt
+
+# But track safe example files
+!supplementary-dividends-template.csv
