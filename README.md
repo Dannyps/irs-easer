@@ -10,11 +10,19 @@ Covers two sections of Anexo J:
 
 If you hold foreign securities, Portuguese tax law requires you to declare capital gains and dividend income in Anexo J of IRS Modelo 3. Filling this out by hand is painful: each sale must be split into one line per purchase lot (FIFO), and dividends must be grouped and totalled by source country. IRS Easer automates both.
 
-## Requirements
-
-- [.NET 10 SDK](https://dotnet.microsoft.com/download)
-
 ## Installation
+
+### Option A — Pre-built release (no .NET required)
+
+1. Download the latest archive for your platform from the [Releases](../../releases/latest) page (`irs-easer-linux-x64.zip` or `irs-easer-win-x64.zip`).
+2. Extract the archive. The `input/` folder with template files is included.
+3. Run the executable:
+   - **Linux/macOS:** `./IrsEaser`
+   - **Windows:** `IrsEaser.exe`
+
+### Option B — Run from source
+
+**Requirements:** [.NET 10 SDK](https://dotnet.microsoft.com/download)
 
 ```
 git clone <repo-url>
@@ -27,9 +35,8 @@ No build step needed — `dotnet run` compiles and runs in one go.
 
 1. Drop your CSV exports into the `input/` folder (see [Input Files](#input-files) below).
 2. Run the tool:
-   ```
-   dotnet run --project IrsEaser
-   ```
+   - **Pre-built release:** `./IrsEaser` (Linux/macOS) or `IrsEaser.exe` (Windows)
+   - **From source:** `dotnet run --project IrsEaser`
 3. An interactive menu appears. Choose what to generate, select your files, confirm the tax year. Done.
 
 The tool defaults to the **previous calendar year**, which is almost always the right choice when filing.
