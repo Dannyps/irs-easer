@@ -48,6 +48,12 @@ jobs:
           --self-contained true
           --output publish/win-x64
 
+      - name: Copy input directory to publish outputs
+        if: github.event_name != 'pull_request'
+        run: |
+          cp -r input/ publish/linux-x64/input
+          cp -r input/ publish/win-x64/input
+
       - name: Upload linux-x64 artifact
         if: github.event_name != 'pull_request'
         uses: actions/upload-artifact@v4
